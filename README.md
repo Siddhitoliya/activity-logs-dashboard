@@ -44,18 +44,7 @@ Before you begin, ensure you have:
 
 ## 🚀 Quick Start Guide
 
-### Step 1: Clone/Create Project
-
-```bash
-# Create project directory
-mkdir keycloak-logging-system
-cd keycloak-logging-system
-
-# Create subdirectories
-mkdir -p backend frontend database server-config
-```
-
-### Step 2: Setup Database
+### Step 1: Setup Database
 
 ```bash
 # Start PostgreSQL (if not running)
@@ -75,7 +64,7 @@ CREATE DATABASE keycloak_logs;
 \q
 ```
 
-### Step 3: Setup Backend API
+### Step 2: Setup Backend API
 
 ```bash
 # Navigate to backend directory
@@ -88,10 +77,6 @@ npm init -y
 npm install express pg cors dotenv helmet express-rate-limit compression morgan
 npm install --save-dev nodemon
 
-# Create directory structure
-mkdir -p config controllers middleware routes
-
-# Copy all backend files from the artifacts
 # Edit .env file with your actual values
 
 # Start backend
@@ -102,7 +87,7 @@ npm run dev
 # 🚀 Server running on http://localhost:3001
 ```
 
-### Step 4: Setup Frontend Dashboard
+### Step 3: Setup Frontend Dashboard
 
 ```bash
 # Navigate to frontend directory (from project root)
@@ -115,11 +100,6 @@ npx nuxi@latest init .
 npm install -D @nuxtjs/tailwindcss
 npx tailwindcss init
 
-# Create directory structure
-mkdir -p components composables assets/css
-
-# Copy all frontend files from the artifacts
-
 # Start dashboard
 npm run dev
 
@@ -127,7 +107,7 @@ npm run dev
 # Nuxt running at http://localhost:3000
 ```
 
-### Step 5: Configure Keycloak Server
+### Step 4: Configure Keycloak Server
 
 ```bash
 # SSH into server
