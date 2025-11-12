@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply antialiased;
+  }
+}
+
+@layer components {
+  .glass-effect {
+    @apply bg-gray-800/50 backdrop-blur-lg border border-purple-500/30;
+  }
+  
+  .card {
+    @apply glass-effect rounded-xl p-6;
+  }
+  
+  .btn {
+    @apply px-4 py-2 rounded-lg font-medium transition-all duration-200;
+  }
+  
+  .btn-primary {
+    @apply bg-purple-600 hover:bg-purple-700 text-white;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-700 hover:bg-gray-600 text-white;
+  }
+  
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white;
+  }
+  
+  .badge {
+    @apply px-2 py-1 rounded text-xs font-medium;
+  }
+  
+  .badge-success {
+    @apply bg-green-900/50 text-green-300;
+  }
+  
+  .badge-error {
+    @apply bg-red-900/50 text-red-300;
+  }
+  
+  .badge-warning {
+    @apply bg-yellow-900/50 text-yellow-300;
+  }
+  
+  .badge-info {
+    @apply bg-blue-900/50 text-blue-300;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-purple-600 rounded;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-purple-700;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
