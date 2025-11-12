@@ -1,0 +1,69 @@
+version: "3.9"
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.4
+    container_name: keycloak
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin123
+
+      # Database Configuration
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://192.168.6.224:5432/keycloak
+      KC_DB_USERNAME: postgres
+      KC_DB_PASSWORD: postgres
+
+      KC_HTTPS_CERTIFICATE_FILE: /opt/keycloak/certs/cert.pem
+      KC_HTTPS_CERTIFICATE_KEY_FILE: /opt/keycloak/certs/key.pem
+      KC_HOSTNAME_STRICT: "false"
+      KC_PROXY: edge
+      KC_FEATURES: "preview"
+      
+      KC_LOG: console-json
+      KC_LOG_LEVEL: info
+      
+      KC_SPI_EVENTS_LISTENER_JBOSS_LOGGING_SUCCESS_LEVEL: info
+      KC_SPI_EVENTS_LISTENER_JBOSS_LOGGING_ERROR_LEVEL: warn
+
+    volumes:
+      - ./certs:/opt/keycloak/certs
+      - ./logs:/opt/keycloak/data/log
+
+    ports:
+      - "8443:8443"
+      - "8080:8080"
+
+    command: ["start", "--features=authorization,scripts"]
+    
+    restart: unless-stopped
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+        labels: "service=keycloak"
+
+  vector:
+    image: timberio/vector:0.34.1-alpine
+    container_name: vector
+    volumes:
+      - ./vector.toml:/etc/vector/vector.toml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./logs:/logs:ro
+    ports:
+      - "8686:8686"  
+    depends_on:
+      - keycloak
+    restart: unless-stopped
+    command: ["--config", "/etc/vector/vector.toml"]
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+networks:
+  default:
+    driver: bridge

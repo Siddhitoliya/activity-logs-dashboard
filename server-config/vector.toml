@@ -1,0 +1,246 @@
+# Vector Configuration for Keycloak Log Processing
+# Version: 1.0
+
+# ═══════════════════════════════════════════════════════
+# API Configuration
+# ═══════════════════════════════════════════════════════
+[api]
+enabled = true
+address = "0.0.0.0:8686"
+playground = false
+
+# ═══════════════════════════════════════════════════════
+# SOURCE: Capture Keycloak Docker Logs
+# ═══════════════════════════════════════════════════════
+[sources.keycloak_logs]
+type = "docker_logs"
+docker_host = "unix:///var/run/docker.sock"
+include_containers = ["keycloak"]
+
+# ═══════════════════════════════════════════════════════
+# TRANSFORM: Parse JSON Logs
+# ═══════════════════════════════════════════════════════
+[transforms.parse_json]
+type = "remap"
+inputs = ["keycloak_logs"]
+source = '''
+  # Try to parse JSON log message
+  parsed = parse_json!(.message) ?? {}
+  
+  # Extract timestamp
+  .timestamp = parsed.timestamp ?? parsed["@timestamp"] ?? now()
+  
+  # Extract log level
+  .level = parsed.level ?? parsed.severity ?? "INFO"
+  
+  # Extract message
+  .log_message = parsed.message ?? .message
+  
+  # Store original for debugging
+  .raw_log = .message
+  
+  # Remove original message field
+  del(.message)
+  
+  # Extract common fields if they exist
+  if exists(parsed.userId) {
+    .user_id = parsed.userId
+  }
+  if exists(parsed.username) {
+    .username = parsed.username
+  }
+  if exists(parsed.realmId) || exists(parsed.realm) {
+    .realm = parsed.realmId ?? parsed.realm
+  }
+  if exists(parsed.clientId) {
+    .client_id = parsed.clientId
+  }
+  if exists(parsed.ipAddress) {
+    .ip_address = parsed.ipAddress
+  }
+'''
+
+# ═══════════════════════════════════════════════════════
+# TRANSFORM: Filter Authentication Events
+# ═══════════════════════════════════════════════════════
+[transforms.auth_events]
+type = "filter"
+inputs = ["parse_json"]
+condition = '''
+  contains(string!(.log_message), "LOGIN") || 
+  contains(string!(.log_message), "LOGOUT") || 
+  contains(string!(.log_message), "REGISTER") ||
+  contains(string!(.log_message), "CODE_TO_TOKEN") ||
+  contains(string!(.log_message), "REFRESH_TOKEN") ||
+  contains(string!(.log_message), "type=LOGIN") ||
+  contains(string!(.log_message), "type=LOGOUT")
+'''
+
+[transforms.enrich_auth_events]
+type = "remap"
+inputs = ["auth_events"]
+source = '''
+  # Determine event type
+  .event_type = if contains(string!(.log_message), "LOGIN") || contains(string!(.log_message), "type=LOGIN") {
+    "LOGIN"
+  } else if contains(string!(.log_message), "LOGOUT") || contains(string!(.log_message), "type=LOGOUT") {
+    "LOGOUT"
+  } else if contains(string!(.log_message), "REGISTER") {
+    "REGISTER"
+  } else if contains(string!(.log_message), "CODE_TO_TOKEN") {
+    "TOKEN_EXCHANGE"
+  } else if contains(string!(.log_message), "REFRESH_TOKEN") {
+    "TOKEN_REFRESH"
+  } else {
+    "AUTH_EVENT"
+  }
+  
+  # Extract realm from log message if not present
+  if !exists(.realm) {
+    realm_match = parse_regex(string!(.log_message), r'realm[=:](?P<realm>[^,\s\)]+)') ?? {}
+    if exists(realm_match.realm) {
+      .realm = realm_match.realm
+    }
+  }
+  
+  # Check if event was successful
+  .success = !contains(string!(.log_message), "error") && 
+             !contains(string!(.log_message), "failed") &&
+             !contains(string!(.log_message), "FAILED")
+  
+  # Mark as auth event
+  .is_auth_event = true
+  
+  # Build metadata
+  .metadata = {
+    "log_level": .level,
+    "container": .container_name ?? "keycloak"
+  }
+'''
+
+# ═══════════════════════════════════════════════════════
+# TRANSFORM: Filter Admin Events
+# ═══════════════════════════════════════════════════════
+[transforms.admin_events]
+type = "filter"
+inputs = ["parse_json"]
+condition = '''
+  contains(string!(.log_message), "ADMIN") ||
+  contains(string!(.log_message), "CREATE") ||
+  contains(string!(.log_message), "UPDATE") ||
+  contains(string!(.log_message), "DELETE") ||
+  contains(string!(.log_message), "operationType")
+'''
+
+[transforms.enrich_admin_events]
+type = "remap"
+inputs = ["admin_events"]
+source = '''
+  # Determine operation type
+  .operation_type = if contains(string!(.log_message), "CREATE") {
+    "CREATE"
+  } else if contains(string!(.log_message), "UPDATE") {
+    "UPDATE"
+  } else if contains(string!(.log_message), "DELETE") {
+    "DELETE"
+  } else {
+    "ADMIN_ACTION"
+  }
+  
+  .event_type = "ADMIN_EVENT"
+  .is_admin_event = true
+  
+  # Build metadata
+  .metadata = {
+    "log_level": .level,
+    "container": .container_name ?? "keycloak"
+  }
+'''
+
+# ═══════════════════════════════════════════════════════
+# TRANSFORM: Sanitize - Remove Sensitive Data
+# ═══════════════════════════════════════════════════════
+[transforms.sanitize]
+type = "remap"
+inputs = ["enrich_auth_events", "enrich_admin_events"]
+source = '''
+  # Remove tokens and sensitive fields
+  del(.access_token)
+  del(.refresh_token)
+  del(.id_token)
+  del(.password)
+  del(.secret)
+  del(.client_secret)
+  del(.credentials)
+  
+  # Truncate long fields to prevent excessive storage
+  if exists(.raw_log) && length(string!(.raw_log)) > 5000 {
+    .raw_log = slice!(string!(.raw_log), start: 0, end: 5000)
+    .truncated = true
+  }
+  
+  if exists(.user_agent) && length(string!(.user_agent)) > 500 {
+    .user_agent = slice!(string!(.user_agent), start: 0, end: 500)
+  }
+'''
+
+# ═══════════════════════════════════════════════════════
+# SINK: Send to Express API on Your PC
+# ═══════════════════════════════════════════════════════
+[sinks.express_api]
+type = "http"
+inputs = ["sanitize"]
+
+# ⚠️ IMPORTANT: Replace YOUR_PC_IP with your actual PC IP address
+# Example: uri = "http://192.168.6.100:3001/api/logs/ingest"
+uri = "http://YOUR_PC_IP:3001/api/logs/ingest"
+
+encoding.codec = "json"
+method = "post"
+
+# Batching configuration
+batch.max_events = 100
+batch.timeout_secs = 10
+
+# Compression
+compression = "gzip"
+
+# Request configuration
+request.timeout_secs = 30
+request.rate_limit_duration_secs = 1
+request.rate_limit_num = 100
+request.retry_attempts = 3
+request.retry_initial_backoff_secs = 1
+request.retry_max_duration_secs = 30
+
+# Add authentication header
+[sinks.express_api.headers]
+# ⚠️ IMPORTANT: Use the same token as VECTOR_SECRET_TOKEN in backend/.env
+Authorization = "Bearer YOUR_SECRET_TOKEN_HERE"
+Content-Type = "application/json"
+
+# Health check endpoint
+[sinks.express_api.healthcheck]
+enabled = true
+uri = "http://YOUR_PC_IP:3001/health"
+
+# ═══════════════════════════════════════════════════════
+# SINK: Backup to File (Optional - for debugging)
+# ═══════════════════════════════════════════════════════
+[sinks.backup_file]
+type = "file"
+inputs = ["sanitize"]
+path = "/tmp/keycloak-logs-%Y-%m-%d.json"
+encoding.codec = "json"
+
+# Compression for backup files
+compression = "gzip"
+
+# ═══════════════════════════════════════════════════════
+# SINK: Console Output (Optional - for debugging)
+# ═══════════════════════════════════════════════════════
+# Uncomment to see logs in Vector container logs
+# [sinks.console]
+# type = "console"
+# inputs = ["sanitize"]
+# encoding.codec = "json"
